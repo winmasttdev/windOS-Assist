@@ -92,12 +92,14 @@ def get_hardware_info():
     
     # Windows Hardware detection
     if sys.platform.startswith("win"):
+        # Use winreg for CPU
         try:
-            # Query CPU via wmic
-            cpu_raw = subprocess.check_output("wmic cpu get name", shell=True).decode().strip()
-            cpu_lines = [l.strip() for l in cpu_raw.split("\n") if l.strip()]
-            if len(cpu_lines) > 1:
-                cpu = cpu_lines[1]
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
+            cpu_name, _ = winreg.QueryValueEx(key, "ProcessorNameString")
+            winreg.CloseKey(key)
+            if cpu_name:
+                cpu = cpu_name.strip()
         except Exception:
             try:
                 import platform
@@ -105,12 +107,30 @@ def get_hardware_info():
             except Exception:
                 pass
                 
+        # Use winreg for GPUs, filtering out virtual displays
         try:
-            # Query GPU via wmic
-            gpu_raw = subprocess.check_output("wmic path win32_VideoController get name", shell=True).decode().strip()
-            gpu_lines = [l.strip() for l in gpu_raw.split("\n") if l.strip()]
-            if len(gpu_lines) > 1:
-                gpu = ", ".join(gpu_lines[1:])
+            import winreg
+            gpus = []
+            path = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path)
+            info = winreg.QueryInfoKey(key)
+            for i in range(info[0]):
+                subkey_name = winreg.EnumKey(key, i)
+                if subkey_name.isdigit():
+                    try:
+                        sub_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f"{path}\\{subkey_name}")
+                        gpu_name, _ = winreg.QueryValueEx(sub_key, "DriverDesc")
+                        winreg.CloseKey(sub_key)
+                        if gpu_name:
+                            gpu_lower = gpu_name.lower()
+                            if any(term in gpu_lower for term in ["virtual", "monitor", "mirror", "remote", "citrix", "logmein", "parsec", "software", "mridd", "indirect"]):
+                                continue
+                            gpus.append(gpu_name.strip())
+                    except Exception:
+                        pass
+            winreg.CloseKey(key)
+            if gpus:
+                gpu = ", ".join(gpus)
         except Exception:
             pass
             
@@ -142,8 +162,28 @@ def get_hardware_info():
 def get_voltage():
     # Windows
     if sys.platform.startswith("win"):
+        # Try PowerShell CimInstance (modern WMI API)
         try:
-            # Try WMI design voltage for battery if laptop
+            cmd = "powershell -Command \"Get-CimInstance Win32_Battery | Select-Object -ExpandProperty DesignVoltage\""
+            val = subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL).decode().strip()
+            if val.isdigit():
+                volts = float(val) / 1000.0
+                return f"{volts:.2f}V (Battery)"
+        except Exception:
+            pass
+            
+        try:
+            cmd = "powershell -Command \"Get-CimInstance Win32_Processor | Select-Object -ExpandProperty CurrentVoltage\""
+            val = subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL).decode().strip()
+            if val.isdigit():
+                volts = float(val) / 10.0
+                if volts > 0:
+                    return f"{volts:.2f}V"
+        except Exception:
+            pass
+            
+        # Fallback to deprecated wmic if PowerShell failed
+        try:
             val = subprocess.check_output("wmic path Win32_Battery get DesignVoltage", shell=True).decode().strip()
             lines = [l.strip() for l in val.split("\n") if l.strip()]
             if len(lines) > 1:
@@ -153,11 +193,9 @@ def get_voltage():
             pass
             
         try:
-            # Try processor voltage
             val = subprocess.check_output("wmic path Win32_Processor get CurrentVoltage", shell=True).decode().strip()
             lines = [l.strip() for l in val.split("\n") if l.strip()]
             if len(lines) > 1:
-                # WMI returns voltage * 10
                 volts = float(lines[1]) / 10.0
                 if volts > 0:
                     return f"{volts:.2f}V"

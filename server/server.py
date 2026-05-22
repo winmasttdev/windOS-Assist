@@ -250,9 +250,11 @@ def get_telegram_user(message):
 
 def get_server_status():
     hw = get_server_hardware()
+    cpu = clean_hardware_name(hw.get("cpu", "Unknown"))
+    gpu = clean_hardware_name(hw.get("gpu", "Unknown"))
     uptime = get_server_uptime()
     volts = get_server_voltage()
-    return f"Linux Server [CPU: {hw['cpu']} | GPU: {hw['gpu']} | Uptime: {uptime} | Volt: {volts} | Status: Online]"
+    return f"Linux Server [CPU: {cpu} | GPU: {gpu} | Uptime: {uptime} | Volt: {volts} | Status: Online]"
 
 def get_client_status_str():
     global active_client_id
@@ -264,10 +266,39 @@ def get_client_status_str():
     
     c = connected_clients[active_client_id]
     hw = c.get("hardware", {})
+    cpu = clean_hardware_name(hw.get("cpu", "N/A"))
+    gpu = clean_hardware_name(hw.get("gpu", "N/A"))
     uptime = c.get("uptime", "Unknown")
     volts = c.get("voltage", "N/A")
     name = c.get("name", "Client")
-    return f"{name} [CPU: {hw.get('cpu', 'N/A')} | GPU: {hw.get('gpu', 'N/A')} | Uptime: {uptime} | Volt: {volts} | Status: Online]"
+    return f"{name} [CPU: {cpu} | GPU: {gpu} | Uptime: {uptime} | Volt: {volts} | Status: Online]"
+
+# Helper: Clean and shorten verbose hardware names to fit screen
+def clean_hardware_name(name):
+    if not name or name in ["N/A", "Offline", "Unknown"]:
+        return name
+    # Redundant phrase removal
+    name = name.replace("Advanced Micro Devices, Inc.", "AMD")
+    name = name.replace("with AMD Radeon R5 Graphics", "w/ Radeon R5")
+    name = name.replace("Intel(R) Core(TM)", "Intel Core")
+    name = name.replace("CPU @", "@")
+    
+    parts = []
+    for p in name.split(","):
+        p = p.strip()
+        import re
+        brackets = re.findall(r'\[([^\]]+)\]', p)
+        if brackets:
+            p = brackets[0]
+        p = p.replace("Graphics Controller", "").strip()
+        if len(p) > 35:
+            p = p[:32] + "..."
+        parts.append(p)
+        
+    res = ", ".join(parts)
+    if len(res) > 45:
+        res = res[:42] + "..."
+    return res
 
 # Neofetch ASCII Cloud Generator
 def make_neofetch_greeting(user_name):
@@ -275,14 +306,14 @@ def make_neofetch_greeting(user_name):
     client_status = get_client_status_str()
     
     server_hw = get_server_hardware()
-    server_cpu = server_hw["cpu"]
+    server_cpu = clean_hardware_name(server_hw.get("cpu", "Unknown"))
     
     client_cpu = "Offline"
     client_gpu = "Offline"
     if active_client_id and active_client_id in connected_clients:
         c = connected_clients[active_client_id]
-        client_cpu = c.get("hardware", {}).get("cpu", "Unknown Client CPU")
-        client_gpu = c.get("hardware", {}).get("gpu", "Unknown Client GPU")
+        client_cpu = clean_hardware_name(c.get("hardware", {}).get("cpu", "Unknown Client CPU"))
+        client_gpu = clean_hardware_name(c.get("hardware", {}).get("gpu", "Unknown Client GPU"))
         
     date_str = datetime.date.today().strftime("%Y-%m-%d")
     time_str = datetime.datetime.now().strftime("%H:%M:%S")
@@ -312,29 +343,31 @@ def make_neofetch_greeting(user_name):
         f"{dist_info}"
     )
     
-    ascii_cloud = (
-        "      .---.         \n"
-        "     (     )        \n"
-        "    (  .---'        \n"
-        "     (________)     \n"
-    )
-    
+    # Clean, beautiful, non-wrapping vertical layout
     neofetch = (
-        f"```\n"
-        f"     _.-'''''''-._     windOS Assist System Info\n"
-        f"   .'  .---.      '.   -------------------------\n"
-        f"  /   (     )       \\  OS: Linux (Server) | Win/Linux (Client)\n"
-        f"  |  (  .---'       |  Server CPU: {server_cpu}\n"
-        f"  \\   (________)    /  Client CPU: {client_cpu}\n"
-        f"   '.             .'   Client GPU: {client_gpu}\n"
-        f"     '-._______.-'     Server Weather: {weather_info}\n"
-        f"```"
+        "```\n"
+        "      _.-'''''''-._     \n"
+        "    .'  .---.      '.   \n"
+        "   /   (     )       \\  \n"
+        "   |  (  .---'       |  \n"
+        "   \\   (________)    /  \n"
+        "    '.             .'   \n"
+        "      '-._______.-'     \n"
+        "\n"
+        "windOS Assist System Info\n"
+        "-------------------------\n"
+        "OS: Linux (Server) | Win/Linux (Client)\n"
+        f"Server CPU: {server_cpu}\n"
+        f"Client CPU: {client_cpu}\n"
+        f"Client GPU: {client_gpu}\n"
+        f"Server Weather: {weather_info}\n"
+        "```"
     )
     
     return greeting_text + "\n\n" + neofetch
 
 # WebSocket Server Handler
-async def register(websocket, path):
+async def register(websocket, path=None):
     global active_client_id
     try:
         # Expect authorization handshake
@@ -855,13 +888,18 @@ async def handle_text(message):
 
 # Local command-line loop on Server console
 def server_console_loop():
+    global active_client_id
     logger.info("Local Server terminal console activated. Type 'help' for server command list.")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
     while True:
         try:
-            line = sys.stdin.readline().strip()
+            raw_line = sys.stdin.readline()
+            if not raw_line: # EOF reached (e.g. running under systemd)
+                logger.info("Server console input closed (EOF). Exiting console loop.")
+                break
+            line = raw_line.strip()
             if not line:
                 continue
                 
@@ -887,7 +925,6 @@ def server_console_loop():
                 if len(parts) > 1:
                     cid = parts[1]
                     if cid in connected_clients:
-                        global active_client_id
                         active_client_id = cid
                         print(f"Active client set to {connected_clients[cid]['name']}")
                     else:
