@@ -33,7 +33,7 @@ graph TD
     Cli -.->|Pipes stdin/stdout| Shell[🐚 Persistent Shell <br> cmd.exe / bash]:::client
     Cli -.->|Extracts Stats| HW[🔌 Volt / CPU / GPU / Screens]:::client
     
-    subgraph Failover State (Server Offline)
+    subgraph FailoverState ["Failover State (Server Offline)"]
         CliFail[💻 Local Client Fallback Bot]:::client <-->|Polls Directly| TG
     end
     
