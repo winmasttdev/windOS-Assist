@@ -1,0 +1,12 @@
+**/server_config.json
+**/client_config.json
+__pycache__/
+*.pyc
+*.pyo
+temp_screen.png
+fallback_screen.png
+screenshot.png
+.idea/
+.vscode/
+venv/
+.env
