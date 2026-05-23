@@ -300,6 +300,66 @@ def clean_hardware_name(name):
         res = res[:42] + "..."
     return res
 
+def format_markdown_for_telegram(text):
+    if not text:
+        return text
+        
+    def escape_underscores_except_urls(val):
+        words = val.split(" ")
+        for k in range(len(words)):
+            word = words[k]
+            if "http://" not in word and "https://" not in word:
+                words[k] = word.replace("_", "\\_")
+        return " ".join(words)
+
+    # Split by code blocks (```)
+    code_block_parts = text.split("```")
+    
+    for i in range(len(code_block_parts)):
+        if i % 2 == 1:
+            # Inside a code block, leave it untouched
+            continue
+            
+        # Outside code blocks, split by inline code (`)
+        inline_parts = code_block_parts[i].split("`")
+        for j in range(len(inline_parts)):
+            if j % 2 == 1:
+                # Inside inline code, leave it untouched
+                continue
+                
+            # Outside code blocks and inline code: format formatting symbols safely
+            content = inline_parts[j]
+            lines = []
+            for line in content.split("\n"):
+                # Handle headers: e.g., ### Title -> *Title*
+                if line.strip().startswith("#"):
+                    header_level = 0
+                    stripped_line = line.lstrip()
+                    while header_level < len(stripped_line) and stripped_line[header_level] == '#':
+                        header_level += 1
+                    header_content = stripped_line[header_level:].strip()
+                    # Clean up existing bold marks inside headers to avoid nested asterisks
+                    header_content = header_content.replace("**", "").replace("*", "")
+                    lines.append(f"*{header_content}*")
+                else:
+                    # Handle bullet points
+                    lstripped = line.lstrip()
+                    indent = line[:len(line) - len(lstripped)]
+                    if lstripped.startswith("* ") or lstripped.startswith("- ") or lstripped.startswith("+ "):
+                        bullet_content = lstripped[2:]
+                        bullet_content = bullet_content.replace("**", "*")
+                        bullet_content = escape_underscores_except_urls(bullet_content)
+                        lines.append(f"{indent}• {bullet_content}")
+                    else:
+                        line_content = line.replace("**", "*")
+                        line_content = escape_underscores_except_urls(line_content)
+                        lines.append(line_content)
+            inline_parts[j] = "\n".join(lines)
+            
+        code_block_parts[i] = "`".join(inline_parts)
+        
+    return "```".join(code_block_parts)
+
 # Neofetch ASCII Cloud Generator
 def make_neofetch_greeting(user_name):
     server_status = get_server_status()
@@ -798,7 +858,12 @@ async def cmd_ask_ai(message):
         return
     await bot.send_chat_action(message.chat.id, 'typing')
     response = await ask_ai(prompt[1], message.chat.id)
-    await bot.reply_to(message, response)
+    cleaned = format_markdown_for_telegram(response)
+    try:
+        await bot.reply_to(message, cleaned, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Failed to send Markdown message: {e}")
+        await bot.reply_to(message, response)
 
 @bot.message_handler(commands=['ai_chat'])
 @auth_required
@@ -889,13 +954,23 @@ async def handle_text(message):
     elif chat_id in ai_sessions:
         await bot.send_chat_action(chat_id, 'typing')
         response = await ask_ai(message.text, chat_id)
-        await bot.reply_to(message, response)
+        cleaned = format_markdown_for_telegram(response)
+        try:
+            await bot.reply_to(message, cleaned, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Failed to send Markdown message: {e}")
+            await bot.reply_to(message, response)
         
     else:
         # Default behavior: run as AI prompt (since user requested direct task execution in chat)
         await bot.send_chat_action(chat_id, 'typing')
         response = await ask_ai(message.text, chat_id)
-        await bot.reply_to(message, response)
+        cleaned = format_markdown_for_telegram(response)
+        try:
+            await bot.reply_to(message, cleaned, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Failed to send Markdown message: {e}")
+            await bot.reply_to(message, response)
 
 # Local command-line loop on Server console
 def server_console_loop():
