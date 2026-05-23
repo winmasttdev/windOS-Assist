@@ -6,6 +6,17 @@ import subprocess
 import urllib.request
 import secrets
 
+def load_env_api_key():
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            for line in f:
+                if line.startswith("GOOGLE_API_KEY="):
+                    return line.split("=", 1)[1].strip()
+    return ""
+
+GOOGLE_KEY = load_env_api_key()
+
 # ANSI escape codes for beautiful colorized terminal output
 BLUE = "\033[94m"
 GREEN = "\033[92m"
@@ -163,11 +174,13 @@ def remote_server_setup(server_ip, server_port, username, password, key_path, to
         ai_model = ""
         
         if ai_prov in ["google", "openai", "custom"]:
-            ai_key = input(f"{BOLD}Enter API Key: {RESET}").strip()
+            default_key = GOOGLE_KEY if ai_prov == "google" else ""
+            prompt_str = f"Enter API Key [default: {default_key}]: " if default_key else "Enter API Key: "
+            ai_key = input(f"{BOLD}{prompt_str}{RESET}").strip() or default_key
             
         if ai_prov == "google":
             ai_base = "https://generativelanguage.googleapis.com/v1beta/openai/"
-            ai_model = "gemini-1.5-flash"
+            ai_model = "gemini-3.1-flash-lite"
         elif ai_prov == "openai":
             ai_base = "https://api.openai.com/v1"
             ai_model = "gpt-4o-mini"
@@ -333,11 +346,13 @@ def local_server_setup_standalone():
     ai_model = ""
     
     if ai_prov in ["google", "openai", "custom"]:
-        ai_key = input(f"{BOLD}Enter API Key: {RESET}").strip()
+        default_key = GOOGLE_KEY if ai_prov == "google" else ""
+        prompt_str = f"Enter API Key [default: {default_key}]: " if default_key else "Enter API Key: "
+        ai_key = input(f"{BOLD}{prompt_str}{RESET}").strip() or default_key
         
     if ai_prov == "google":
         ai_base = "https://generativelanguage.googleapis.com/v1beta/openai/"
-        ai_model = "gemini-1.5-flash"
+        ai_model = "gemini-3.1-flash-lite"
     elif ai_prov == "openai":
         ai_base = "https://api.openai.com/v1"
         ai_model = "gpt-4o-mini"
@@ -456,10 +471,12 @@ def main_wizard():
             print_header("Fallback AI Settings")
             ai_prov = input(f"{BOLD}Enter AI Provider (google/openai/ollama/custom) [google]: {RESET}").strip().lower() or "google"
             if ai_prov in ["google", "openai", "custom"]:
-                ai_key = input(f"{BOLD}Enter API Key: {RESET}").strip()
+                default_key = GOOGLE_KEY if ai_prov == "google" else ""
+                prompt_str = f"Enter API Key [default: {default_key}]: " if default_key else "Enter API Key: "
+                ai_key = input(f"{BOLD}{prompt_str}{RESET}").strip() or default_key
             if ai_prov == "google":
                 ai_base = "https://generativelanguage.googleapis.com/v1beta/openai/"
-                ai_model = "gemini-1.5-flash"
+                ai_model = "gemini-3.1-flash-lite"
             elif ai_prov == "openai":
                 ai_base = "https://api.openai.com/v1"
                 ai_model = "gpt-4o-mini"

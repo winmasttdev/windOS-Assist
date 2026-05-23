@@ -49,6 +49,7 @@ config = {}
 connected_to_server = False
 fallback_bot_running = False
 fallback_bot = None
+fallback_bot_task = None
 persistent_shell = None
 
 def load_config():
@@ -671,7 +672,7 @@ async def start_fallback_bot():
         fallback_bot_running = False
 
 async def main():
-    global connected_to_server, fallback_bot_running, fallback_bot
+    global connected_to_server, fallback_bot_running, fallback_bot, fallback_bot_task
     backoff = 2.0
     
     # Perform startup server status check & WoL warning trigger in a separate thread
@@ -689,7 +690,7 @@ async def main():
             
             # 2. Trigger fallback bot if connection is dead
             if not fallback_bot_running and telebot and config.get("telegram_token"):
-                asyncio.create_task(start_fallback_bot())
+                fallback_bot_task = asyncio.create_task(start_fallback_bot())
                 
             # 3. Connection retry with backoff
             logger.info(f"Retrying connection to server in {backoff} seconds...")
@@ -700,12 +701,19 @@ async def main():
             
             # Pause fallback bot polling before retry to prevent conflict
             if fallback_bot_running and fallback_bot:
-                logger.info("Pausing fallback bot polling to test server connection...")
+                logger.info("Stopping fallback bot polling to test server connection...")
                 try:
+                    if fallback_bot_task:
+                        fallback_bot_task.cancel()
+                        try:
+                            await fallback_bot_task
+                        except asyncio.CancelledError:
+                            pass
                     await fallback_bot.close_session()
                     fallback_bot_running = False
-                except Exception:
-                    pass
+                    fallback_bot_task = None
+                except Exception as e:
+                    logger.error(f"Error stopping fallback bot: {e}")
             
             backoff = min(backoff * 1.5, 60.0)
 

@@ -67,7 +67,7 @@ def load_config():
             "ai_provider": "google",  # google, openai, ollama, custom
             "ai_api_key": "",
             "ai_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-            "ai_model": "gemini-1.5-flash",
+            "ai_model": "gemini-3.1-flash-lite",
             "server_mac": "00:00:00:00:00:00"
         }
 
@@ -336,10 +336,11 @@ def make_neofetch_greeting(user_name):
             dist_info = f"\n🌍 Distance to Server: {d:.2f} km"
 
     greeting_text = (
-        f"Greetings, {user_name}!,\n"
-        f"Server and client status: {server_status} | {client_status},\n"
-        f"The weather is: {weather_info}\n"
-        f"Today is {date_str} The time is {time_str}"
+        f"Greetings, {user_name}!\n\n"
+        f"🖥️ {server_status}\n"
+        f"💻 {client_status}\n"
+        f"🌦️ Weather: {weather_info}\n"
+        f"📅 Date: {date_str} | 🕒 Time: {time_str}"
         f"{dist_info}"
     )
     
@@ -637,10 +638,12 @@ async def ask_ai(prompt, chat_id):
     if chat_id not in ai_history:
         # Set system prompt
         system_prompt = (
-            "You are windOS Assist AI, a powerful, helpful assistant managing client-server networks.\n"
-            "Never start every response repeating 'I am windOS Assist AI'. Only introduce yourself once at the beginning, then speak naturally.\n"
-            "You have tools to interact with the client machines (run commands, take screenshots, get stats, wake/sleep machines).\n"
-            "When the user asks you to perform a task, use the appropriate tools to do so, interpret the outputs, and answer directly."
+            "You are windOS Assist AI, a highly capable assistant managing a client-server network.\n"
+            "You have complete control over the active client machine via the `run_command` tool. "
+            "You should be creative and proactive: if the user asks for something that requires external information (like the weather, time, public IP, web searches), "
+            "you can use `run_command` to execute shell utilities (e.g., `curl wttr.in`, `curl ipinfo.io`, or PowerShell requests) to fetch that data, then present it.\n"
+            "Never say you cannot do something if it can be achieved by running a command on the client. "
+            "Use the appropriate tools immediately when requested, interpret the outputs, and respond naturally."
         )
         ai_history[chat_id] = [{"role": "system", "content": system_prompt}]
         
@@ -777,6 +780,14 @@ async def enter_terminal(message):
     client_name = connected_clients[active_client_id]["name"]
     terminal_sessions[message.chat.id] = active_client_id
     await bot.reply_to(message, f"🐚 *Terminal Mode Active* on *{client_name}*.\nType your shell commands. Send `exit` to close session.", parse_mode="Markdown")
+
+@bot.message_handler(commands=['clear', 'reset'])
+@auth_required
+async def clear_ai_history(message):
+    chat_id = message.chat.id
+    if chat_id in ai_history:
+        ai_history.pop(chat_id)
+    await bot.reply_to(message, "🧹 AI conversation history has been cleared and reset!")
 
 @bot.message_handler(commands=['ai'])
 @auth_required

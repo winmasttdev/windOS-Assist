@@ -6,6 +6,18 @@ import secrets
 import subprocess
 import paramiko
 
+# Function to load API key from gitignored .env file
+def load_env_api_key():
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            for line in f:
+                if line.startswith("GOOGLE_API_KEY="):
+                    return line.split("=", 1)[1].strip()
+    return ""
+
+GOOGLE_KEY = load_env_api_key()
+
 # Configuration
 SERVER_IP = "192.168.0.102"
 SSH_USER = "winmastt"
@@ -79,10 +91,10 @@ def main():
         "websocket_port": 8765,
         "websocket_host": "0.0.0.0",
         "client_token": CLIENT_TOKEN,
-        "ai_provider": "ollama",
-        "ai_api_key": "",
-        "ai_base_url": f"http://{CLIENT_IP}:11434/v1",
-        "ai_model": OLLAMA_MODEL,
+        "ai_provider": "google" if GOOGLE_KEY else "ollama",
+        "ai_api_key": GOOGLE_KEY,
+        "ai_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/" if GOOGLE_KEY else f"http://{CLIENT_IP}:11434/v1",
+        "ai_model": "gemini-3.1-flash-lite" if GOOGLE_KEY else OLLAMA_MODEL,
         "server_mac": server_mac
     }
     
@@ -141,6 +153,8 @@ def main():
     # 7. Configure Local Client
     print("\n=== Configuring Local Client ===")
     client_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "client")
+    client_script_path = os.path.join(client_dir, "client.py")
+    vbs_path = os.path.join(client_dir, "run_client.vbs")
     
     client_config = {
         "server_url": f"ws://{SERVER_IP}:8765",
@@ -149,10 +163,10 @@ def main():
         "server_mac": server_mac,
         "telegram_token": TG_TOKEN,
         "authorized_chat_id": CHAT_ID,
-        "ai_provider": "ollama",
-        "ai_api_key": "",
-        "ai_base_url": "http://127.0.0.1:11434/v1",
-        "ai_model": OLLAMA_MODEL
+        "ai_provider": "google" if GOOGLE_KEY else "ollama",
+        "ai_api_key": GOOGLE_KEY,
+        "ai_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/" if GOOGLE_KEY else "http://127.0.0.1:11434/v1",
+        "ai_model": "gemini-3.1-flash-lite" if GOOGLE_KEY else OLLAMA_MODEL
     }
     
     config_path = os.path.join(client_dir, "client_config.json")
@@ -170,12 +184,10 @@ def main():
         
     # 9. Register startup persistence (copy VBS launcher to Windows Startup folder)
     print("Setting up Windows startup persistence...")
-    vbs_path = os.path.join(client_dir, "run_client.vbs")
-    client_script_path = os.path.join(client_dir, "client.py")
-    
+    python_exe = sys.executable
     vbs_content = (
         'Set WshShell = CreateObject("WScript.Shell")\n'
-        f'WshShell.Run "python ""{client_script_path}""", 0, False\n'
+        f'WshShell.Run """{python_exe}"" ""{client_script_path}""", 0, False\n'
     )
     with open(vbs_path, "w") as f:
         f.write(vbs_content)
