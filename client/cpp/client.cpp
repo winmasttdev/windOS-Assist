@@ -32,6 +32,20 @@
 using namespace Microsoft::WRL;
 using json = nlohmann::json;
 
+#include <mmsystem.h>
+#include <shellapi.h>
+
+#pragma comment(lib, "winmm.lib")
+#pragma comment(lib, "shell32.lib")
+
+#define WM_SYSICON (WM_USER + 1)
+#define TRAY_ICON_ID 1
+
+#define ID_TRAY_OPEN 40001
+#define ID_TRAY_EXIT 40002
+#define ID_TRAY_INFO 40003
+#define ID_TRAY_RECONNECT 40004
+
 // Global Window & WebView2 Pointers
 HWND g_hWnd = NULL;
 ComPtr<ICoreWebView2Controller> g_webviewController;
@@ -54,6 +68,9 @@ void SetupWebView2(HWND hWnd);
 void UpdateGUIStatus();
 void PostMessageToGUI(const json& msgObj);
 
+class WinHttpWebSocket;
+extern WinHttpWebSocket g_ws;
+
 // Utility string converters
 std::wstring s2ws(const std::string& str) {
     if (str.empty()) return L"";
@@ -69,6 +86,79 @@ std::string ws2s(const std::wstring& wstr) {
     std::string strTo(size_needed, 0);
     WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0], size_needed, NULL, NULL);
     return strTo;
+}
+
+// Base64 encoding helper
+std::string Base64Encode(const std::vector<unsigned char>& data) {
+    static const char s_b64_table[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    int val = 0, valb = -6;
+    for (unsigned char c : data) {
+        val = (val << 8) + c;
+        valb += 8;
+        while (valb >= 0) {
+            out.push_back(s_b64_table[(val >> valb) & 0x3F]);
+            valb -= 6;
+        }
+    }
+    if (valb > -6) out.push_back(s_b64_table[((val << 8) >> (valb + 8)) & 0x3F]);
+    while (out.size() % 4) out.push_back('=');
+    return out;
+}
+
+// WAV Header structure (packed 1-byte boundary)
+#pragma pack(push, 1)
+struct WAVHeader {
+    char riff[4] = {'R', 'I', 'F', 'F'};
+    uint32_t fileSize; // Size of the file - 8
+    char wave[4] = {'W', 'A', 'V', 'E'};
+    char fmt[4] = {'f', 'm', 't', ' '};
+    uint32_t fmtSize = 16;
+    uint16_t audioFormat = 1; // PCM
+    uint16_t numChannels = 1; // Mono
+    uint32_t sampleRate = 16000;
+    uint32_t byteRate = 32000; // sampleRate * numChannels * bitsPerSample/8
+    uint16_t blockAlign = 2; // numChannels * bitsPerSample/8
+    uint16_t bitsPerSample = 16;
+    char data[4] = {'d', 'a', 't', 'a'};
+    uint32_t dataSize; // Size of the raw PCM data
+};
+#pragma pack(pop)
+
+// Forward declarations for Audio Recording
+void StartAudioRecording();
+void StopAudioRecording();
+
+// System Tray variables and functions
+NOTIFYICONDATAW g_nid = { 0 };
+
+void AddTrayIcon(HWND hWnd) {
+    g_nid.cbSize = sizeof(NOTIFYICONDATAW);
+    g_nid.hWnd = hWnd;
+    g_nid.uID = TRAY_ICON_ID;
+    g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP;
+    g_nid.uCallbackMessage = WM_SYSICON;
+    g_nid.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+    wcscpy_s(g_nid.szTip, L"windOS Assist Client");
+    
+    Shell_NotifyIconW(NIM_ADD, &g_nid);
+    g_nid.uVersion = NOTIFYICON_VERSION_4;
+    Shell_NotifyIconW(NIM_SETVERSION, &g_nid);
+}
+
+void RemoveTrayIcon() {
+    Shell_NotifyIconW(NIM_DELETE, &g_nid);
+}
+
+void ShowTrayNotification(const std::wstring& title, const std::wstring& msg) {
+    g_nid.uFlags |= NIF_INFO;
+    wcscpy_s(g_nid.szInfo, msg.c_str());
+    wcscpy_s(g_nid.szInfoTitle, title.c_str());
+    g_nid.dwInfoFlags = NIIF_INFO;
+    Shell_NotifyIconW(NIM_MODIFY, &g_nid);
+    // Clear NIF_INFO flag immediately so future modifications don't keep showing balloon tips
+    g_nid.uFlags &= ~NIF_INFO;
 }
 
 // Logger
@@ -467,6 +557,108 @@ public:
 
 WinHttpWebSocket g_ws;
 
+// Audio Recording state variables
+bool g_isRecording = false;
+HWAVEIN g_hWaveIn = NULL;
+WAVEHDR g_waveHdr = { 0 };
+
+// Audio Recording implementation
+void RecordAudioThread() {
+    // Wave Format: 16000Hz, 16-bit, Mono
+    WAVEFORMATEX wfx = { 0 };
+    wfx.wFormatTag = WAVE_FORMAT_PCM;
+    wfx.nChannels = 1;
+    wfx.nSamplesPerSec = 16000;
+    wfx.wBitsPerSample = 16;
+    wfx.nBlockAlign = 2;
+    wfx.nAvgBytesPerSec = 32000;
+    wfx.cbSize = 0;
+
+    MMRESULT mmr = waveInOpen(&g_hWaveIn, WAVE_MAPPER, &wfx, 0, 0, CALLBACK_NULL);
+    if (mmr != MMSYSERR_NOERROR) {
+        Log("Failed to open audio input device.");
+        g_isRecording = false;
+        json errPacket = {
+            { "type", "recording_failed" },
+            { "message", "No microphone detected or permission denied." }
+        };
+        PostMessageToGUI(errPacket);
+        return;
+    }
+
+    // Allocate buffer for 5 seconds: 5 * 32000 bytes = 160000 bytes
+    DWORD bufSize = 5 * wfx.nAvgBytesPerSec;
+    std::vector<char> rawBuffer(bufSize);
+    
+    g_waveHdr.lpData = rawBuffer.data();
+    g_waveHdr.dwBufferLength = bufSize;
+    g_waveHdr.dwBytesRecorded = 0;
+    g_waveHdr.dwUser = 0;
+    g_waveHdr.dwFlags = 0;
+
+    waveInPrepareHeader(g_hWaveIn, &g_waveHdr, sizeof(WAVEHDR));
+    waveInAddBuffer(g_hWaveIn, &g_waveHdr, sizeof(WAVEHDR));
+
+    Log("Starting waveIn audio recording...");
+    waveInStart(g_hWaveIn);
+
+    // Record for 5 seconds (50 ticks of 100ms) or until stopped
+    for (int i = 0; i < 50 && g_isRecording; ++i) {
+        Sleep(100);
+    }
+
+    waveInStop(g_hWaveIn);
+    waveInReset(g_hWaveIn);
+    waveInUnprepareHeader(g_hWaveIn, &g_waveHdr, sizeof(WAVEHDR));
+    waveInClose(g_hWaveIn);
+    g_hWaveIn = NULL;
+
+    DWORD bytesRecorded = g_waveHdr.dwBytesRecorded;
+    Log("Recorded " + std::to_string(bytesRecorded) + " bytes.");
+
+    if (bytesRecorded > 0) {
+        // Build WAV file in memory
+        WAVHeader header;
+        header.dataSize = bytesRecorded;
+        header.fileSize = sizeof(WAVHeader) + bytesRecorded - 8;
+
+        std::vector<unsigned char> wavFile(sizeof(WAVHeader) + bytesRecorded);
+        std::memcpy(wavFile.data(), &header, sizeof(WAVHeader));
+        std::memcpy(wavFile.data() + sizeof(WAVHeader), rawBuffer.data(), bytesRecorded);
+
+        std::string base64Wav = Base64Encode(wavFile);
+
+        // Send to server
+        if (g_connectedToServer) {
+            json voicePacket = {
+                { "type", "voice_command" },
+                { "data", base64Wav }
+            };
+            g_ws.Send(voicePacket.dump());
+        } else {
+            json errPacket = {
+                { "type", "chat_receive" },
+                { "content", "⚠️ Connection offline. Failed to send voice command." }
+            };
+            PostMessageToGUI(errPacket);
+        }
+    }
+
+    g_isRecording = false;
+    json stopPacket = { { "type", "recording_stopped" } };
+    PostMessageToGUI(stopPacket);
+}
+
+void StartAudioRecording() {
+    if (g_isRecording) return;
+    g_isRecording = true;
+    std::thread(RecordAudioThread).detach();
+}
+
+void StopAudioRecording() {
+    g_isRecording = false;
+}
+
 // URL Parser
 void ParseWebSocketUrl(std::string urlStr, std::wstring& host, int& port, std::wstring& path, bool& useSSL) {
     host = L"localhost";
@@ -736,6 +928,10 @@ void HandleWebMessage(const std::string& msgStr) {
                 };
                 PostMessageToGUI(errPacket);
             }
+        } else if (type == "start_recording") {
+            StartAudioRecording();
+        } else if (type == "stop_recording") {
+            StopAudioRecording();
         }
     } catch (...) {}
 }
@@ -804,7 +1000,61 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 g_webviewController->put_Bounds(bounds);
             }
             break;
+        case WM_SYSICON:
+            if (lParam == WM_RBUTTONUP) {
+                POINT curPoint;
+                GetCursorPos(&curPoint);
+                HMENU hMenu = CreatePopupMenu();
+                AppendMenuW(hMenu, MF_STRING, ID_TRAY_OPEN, L"Open Client Chat");
+                AppendMenuW(hMenu, MF_STRING, ID_TRAY_RECONNECT, L"Restart Connection");
+                AppendMenuW(hMenu, MF_STRING, ID_TRAY_INFO, L"System Info");
+                AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(hMenu, MF_STRING, ID_TRAY_EXIT, L"Exit Client");
+                
+                SetForegroundWindow(hWnd);
+                TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON, curPoint.x, curPoint.y, 0, hWnd, NULL);
+                DestroyMenu(hMenu);
+            }
+            else if (lParam == WM_LBUTTONDBLCLK || lParam == WM_LBUTTONUP) {
+                ShowWindow(hWnd, SW_SHOW);
+                ShowWindow(hWnd, SW_RESTORE);
+                SetForegroundWindow(hWnd);
+            }
+            break;
+        case WM_COMMAND: {
+            int wmId = LOWORD(wParam);
+            switch (wmId) {
+                case ID_TRAY_OPEN:
+                    ShowWindow(hWnd, SW_SHOW);
+                    ShowWindow(hWnd, SW_RESTORE);
+                    SetForegroundWindow(hWnd);
+                    break;
+                case ID_TRAY_RECONNECT:
+                    g_ws.Close();
+                    ShowTrayNotification(L"windOS Assist", L"Reconnection triggered.");
+                    break;
+                case ID_TRAY_INFO: {
+                    std::wstring info = L"Hostname: " + s2ws(g_hostname) + L"\n" +
+                                        L"CPU: " + s2ws(g_cpuName) + L"\n" +
+                                        L"GPU: " + s2ws(g_gpuName) + L"\n" +
+                                        L"Uptime: " + s2ws(GetUptime()) + L"\n" +
+                                        L"Voltage: " + s2ws(GetVoltage());
+                    MessageBoxW(hWnd, info.c_str(), L"windOS Client Stats", MB_OK | MB_ICONINFORMATION);
+                    break;
+                }
+                case ID_TRAY_EXIT:
+                    RemoveTrayIcon();
+                    DestroyWindow(hWnd);
+                    break;
+            }
+            break;
+        }
+        case WM_CLOSE:
+            ShowWindow(hWnd, SW_HIDE);
+            ShowTrayNotification(L"windOS Assist", L"Client is running in the background. Double-click tray icon to open.");
+            break;
         case WM_DESTROY:
+            RemoveTrayIcon();
             PostQuitMessage(0);
             break;
         default:
@@ -849,16 +1099,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     // Start background websocket daemon connection thread
     std::thread(BackgroundWorkerThread).detach();
 
-    if (g_isBackground) {
-        // Run message pump silently (without showing window)
-        MSG msg;
-        while (GetMessage(&msg, nullptr, 0, 0)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-        return (int)msg.wParam;
-    }
-
     // Register Win32 Window Class
     WNDCLASSEXW wcex = { 0 };
     wcex.cbSize = sizeof(WNDCLASSEX);
@@ -877,8 +1117,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     if (!g_hWnd) return FALSE;
 
-    ShowWindow(g_hWnd, nCmdShow);
-    UpdateWindow(g_hWnd);
+    // Add System Tray Icon
+    AddTrayIcon(g_hWnd);
+
+    if (!g_isBackground) {
+        ShowWindow(g_hWnd, nCmdShow);
+        UpdateWindow(g_hWnd);
+    } else {
+        ShowWindow(g_hWnd, SW_HIDE);
+    }
 
     // Initialize WebView2
     SetupWebView2(g_hWnd);

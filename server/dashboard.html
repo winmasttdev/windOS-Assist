@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>windOS Assist Server Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --glass-bg: rgba(15, 23, 42, 0.45);
+            --card-bg: rgba(30, 41, 59, 0.35);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-glow: rgba(99, 102, 241, 0.2);
+            --accent-primary: #6366f1;
+            --accent-secondary: #4f46e5;
+            --neon-green: #10b981;
+            --neon-red: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            min-height: 100vh;
+            background-image: radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 40%),
+                              radial-gradient(circle at 90% 80%, rgba(79, 70, 229, 0.05) 0%, transparent 40%);
+            display: flex;
+            flex-direction: column;
+            padding: 40px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 24px 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-weight: 700;
+            font-size: 24px;
+            background: linear-gradient(to right, #818cf8, #e0e7ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .logo-icon {
+            font-size: 28px;
+            -webkit-text-fill-color: initial;
+        }
+
+        .server-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 14px;
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 12px;
+        }
+
+        .indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .indicator.online {
+            background-color: var(--neon-green);
+            box-shadow: 0 0 10px var(--neon-green);
+        }
+
+        /* Client Grid */
+        .grid-header {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .refresh-btn {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 6px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .refresh-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .client-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .client-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(15px);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+            transition: transform 0.2s, border-color 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .client-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent-primary);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 12px;
+        }
+
+        .client-name {
+            font-weight: 600;
+            font-size: 18px;
+        }
+
+        .client-ip {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-family: monospace;
+        }
+
+        .card-body {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .card-row {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .card-label {
+            color: var(--text-secondary);
+        }
+
+        .card-value {
+            font-weight: 500;
+            text-align: right;
+            max-width: 70%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 8px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 10px;
+            border-radius: 10px;
+            font-weight: 500;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+            border: none;
+            outline: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-secondary);
+            box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Modal Panels */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(10px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .modal {
+            background: var(--glass-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            width: 800px;
+            max-width: 90%;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+            transform: scale(0.95);
+            transition: transform 0.3s;
+        }
+
+        .modal-header {
+            padding: 24px 30px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-weight: 600;
+            font-size: 18px;
+        }
+
+        .close-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 20px;
+            cursor: pointer;
+        }
+
+        .close-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            padding: 30px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        /* Web Shell Styling */
+        .shell-container {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            height: 380px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .shell-log {
+            flex: 1;
+            padding: 16px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+            color: #10b981;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.4;
+        }
+
+        .shell-input-row {
+            display: flex;
+            background: rgba(0, 0, 0, 0.2);
+            border-top: 1px solid var(--border-color);
+            padding: 12px;
+            align-items: center;
+        }
+
+        .shell-prompt {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+            color: var(--accent-primary);
+            margin-right: 8px;
+        }
+
+        .shell-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-primary);
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+        }
+
+        /* Screen capture viewer */
+        .screenshot-frame {
+            width: 100%;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.2);
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .screenshot-frame img {
+            max-width: 100%;
+            max-height: 400px;
+        }
+
+        .ai-analysis-box {
+            background: rgba(99, 102, 241, 0.08);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 12px;
+            padding: 16px;
+            font-size: 13px;
+            line-height: 1.5;
+            display: none;
+        }
+
+        .ai-analysis-header {
+            font-weight: 600;
+            color: var(--accent-primary);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .loading-ring {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--accent-primary);
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s infinite linear;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">
+            <span class="logo-icon">☁️</span>
+            <span>windOS Assist Web Manager</span>
+        </div>
+        <div class="server-status">
+            <span class="indicator online"></span>
+            <span>Server Online</span>
+        </div>
+    </header>
+
+    <div class="grid-header">
+        <span>Connected Clients</span>
+        <button class="refresh-btn" onclick="fetchClients()">
+            🔄 Refresh List
+        </button>
+    </div>
+
+    <div class="client-grid" id="clients-container">
+        <!-- Client cards rendered here -->
+    </div>
+
+    <!-- Terminal Modal -->
+    <div class="modal-overlay" id="terminal-modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title" id="terminal-modal-title">🐚 Remote Terminal Console</div>
+                <button class="close-btn" onclick="closeModal('terminal-modal')">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="shell-container">
+                    <div class="shell-log" id="shell-log">Welcome to windOS Web Shell. Select client and enter commands...</div>
+                    <div class="shell-input-row">
+                        <span class="shell-prompt">></span>
+                        <input type="text" class="shell-input" id="shell-input" placeholder="Enter shell command..." onkeydown="handleShellKey(event)">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screenshot Modal -->
+    <div class="modal-overlay" id="screenshot-modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title" id="screenshot-modal-title">📸 Real-Time Screenshot Capture</div>
+                <button class="close-btn" onclick="closeModal('screenshot-modal')">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="screenshot-frame">
+                    <img id="screenshot-img" src="" alt="Screenshot loading...">
+                </div>
+                <div style="margin-bottom: 20px;">
+                    <button class="btn btn-primary" id="ai-analyze-btn" onclick="analyzeScreenshot()">
+                        🧠 AI Troubleshoot Screen
+                    </button>
+                </div>
+                <div class="ai-analysis-box" id="ai-analysis-box">
+                    <div class="ai-analysis-header">
+                        <span class="loading-ring" id="ai-loading" style="display:none;"></span>
+                        <span>AI Visual OCR Diagnostic Report</span>
+                    </div>
+                    <div id="ai-analysis-content">Analyzing...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentClientId = null;
+
+        // Fetch clients on load
+        async function fetchClients() {
+            try {
+                const res = await fetch('/api/clients');
+                const clients = await res.json();
+                renderClients(clients);
+            } catch (err) {
+                console.error("Failed to fetch clients:", err);
+            }
+        }
+
+        function renderClients(clients) {
+            const container = document.getElementById('clients-container');
+            container.innerHTML = '';
+
+            if (Object.keys(clients).length === 0) {
+                container.innerHTML = `
+                    <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-secondary); background: var(--glass-bg); border: 1px solid var(--border-color); border-radius: 20px;">
+                        No connected clients found. Set up and run a client wizard to connect!
+                    </div>
+                `;
+                return;
+            }
+
+            for (const [id, c] of Object.entries(clients)) {
+                const card = document.createElement('div');
+                card.className = 'client-card';
+                card.innerHTML = `
+                    <div class="card-header">
+                        <span class="client-name">${c.name}</span>
+                        <span class="client-ip">${id}</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="card-row">
+                            <span class="card-label">Hardware MAC:</span>
+                            <span class="card-value">${c.mac}</span>
+                        </div>
+                        <div class="card-row">
+                            <span class="card-label">CPU Type:</span>
+                            <span class="card-value" title="${c.hardware.cpu}">${c.hardware.cpu}</span>
+                        </div>
+                        <div class="card-row">
+                            <span class="card-label">GPU Model:</span>
+                            <span class="card-value" title="${c.hardware.gpu}">${c.hardware.gpu}</span>
+                        </div>
+                        <div class="card-row">
+                            <span class="card-label">Uptime:</span>
+                            <span class="card-value">${c.uptime}</span>
+                        </div>
+                        <div class="card-row">
+                            <span class="card-label">Power Voltage:</span>
+                            <span class="card-value">${c.voltage}</span>
+                        </div>
+                    </div>
+                    <div class="card-actions">
+                        <button class="btn btn-primary" onclick="openTerminal('${id}', '${c.name}')">🐚 Terminal</button>
+                        <button class="btn btn-secondary" onclick="openScreenshot('${id}')">📸 Screenshot</button>
+                    </div>
+                `;
+                container.appendChild(card);
+            }
+        }
+
+        // Modals management
+        function openModal(id) {
+            const overlay = document.getElementById(`${id}-overlay`);
+            overlay.style.display = 'flex';
+            setTimeout(() => {
+                overlay.style.opacity = '1';
+                overlay.querySelector('.modal').style.transform = 'scale(1)';
+            }, 50);
+        }
+
+        function closeModal(id) {
+            const overlay = document.getElementById(`${id}-overlay`);
+            overlay.querySelector('.modal').style.transform = 'scale(0.95)';
+            overlay.style.opacity = '0';
+            setTimeout(() => {
+                overlay.style.display = 'none';
+            }, 300);
+        }
+
+        // Terminal Panel
+        function openTerminal(clientId, clientName) {
+            currentClientId = clientId;
+            document.getElementById('terminal-modal-title').innerText = `🐚 Remote Terminal Console [${clientName}]`;
+            document.getElementById('shell-log').innerHTML = `Connected to ${clientName} shell session.\nType command and press Enter.\n\n`;
+            openModal('terminal-modal');
+            document.getElementById('shell-input').focus();
+        }
+
+        async function handleShellKey(event) {
+            if (event.key === 'Enter') {
+                const input = document.getElementById('shell-input');
+                const cmd = input.value.trim();
+                if (!cmd) return;
+
+                const log = document.getElementById('shell-log');
+                log.innerHTML += `<span style="color: var(--text-primary); font-weight: 600;">$ ${cmd}</span>\n`;
+                log.scrollTop = log.scrollHeight;
+                input.value = '';
+
+                try {
+                    const res = await fetch('/api/terminal', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ client_id: currentClientId, command: cmd })
+                    });
+                    const data = await res.json();
+                    
+                    log.innerHTML += `${data.output}\n`;
+                    log.scrollTop = log.scrollHeight;
+                } catch (err) {
+                    log.innerHTML += `<span style="color: var(--neon-red);">[Error communicating with server]</span>\n`;
+                    log.scrollTop = log.scrollHeight;
+                }
+            }
+        }
+
+        // Screenshot capture & vision analysis
+        function openScreenshot(clientId) {
+            currentClientId = clientId;
+            const img = document.getElementById('screenshot-img');
+            img.src = '';
+            document.getElementById('ai-analysis-box').style.display = 'none';
+            openModal('screenshot-modal');
+
+            // Trigger and display screenshot
+            img.src = `/api/screenshot/${clientId}?t=${Date.now()}`;
+        }
+
+        async function analyzeScreenshot() {
+            const box = document.getElementById('ai-analysis-box');
+            const content = document.getElementById('ai-analysis-content');
+            const ring = document.getElementById('ai-loading');
+
+            box.style.display = 'block';
+            content.innerText = 'AI model is analyzing the screen visual details...';
+            ring.style.display = 'inline-block';
+
+            try {
+                // Post request to trigger AI analysis of the current screenshot
+                const res = await fetch('/api/terminal', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        client_id: currentClientId,
+                        command: "Please analyze the screen screenshot, perform visual OCR, detect what applications or dialog windows are open, find any error messages, and suggest a resolution."
+                    })
+                });
+                const data = await res.json();
+                ring.style.display = 'none';
+                content.innerText = data.output;
+            } catch (err) {
+                ring.style.display = 'none';
+                content.innerText = 'Failed to analyze the screen screenshot. Ensure AI keys are configured on the server.';
+            }
+        }
+
+        // Poll clients status list every 3s
+        setInterval(fetchClients, 3000);
+        window.onload = fetchClients;
+    </script>
+</body>
+</html>

@@ -9,7 +9,9 @@ import datetime
 import math
 import urllib.request
 import logging
+import base64
 from threading import Thread
+from aiohttp import web
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -45,6 +47,7 @@ active_client_id = None
 terminal_sessions = {}  # chat_id: client_id (active terminal session)
 ai_sessions = {}        # chat_id: True (active continuous AI chat mode)
 ai_history = {}         # chat_id: list of messages
+screenshot_futures = {}
 
 # Load configuration
 def load_config():
@@ -491,10 +494,19 @@ async def register(websocket, path=None):
                     image_data = bytes.fromhex(image_data_hex)
                     with open("screenshot.png", "wb") as f:
                         f.write(image_data)
-                    with open("screenshot.png", "rb") as f:
-                        await bot.send_photo(chat_id, f, caption=f"📸 Screenshot from {client_name}")
+                    
+                    if chat_id == "dashboard":
+                        if client_id in screenshot_futures:
+                            screenshot_futures[client_id].set_result(image_data)
+                    else:
+                        with open("screenshot.png", "rb") as f:
+                            await bot.send_photo(chat_id, f, caption=f"📸 Screenshot from {client_name}")
                 else:
-                    await bot.send_message(chat_id, "❌ Failed to capture screenshot.")
+                    if chat_id == "dashboard":
+                        if client_id in screenshot_futures:
+                            screenshot_futures[client_id].set_exception(Exception("Failed to capture screenshot."))
+                    else:
+                        await bot.send_message(chat_id, "❌ Failed to capture screenshot.")
             
             # Handle terminal execution response
             elif msg_type == "terminal_response":
@@ -519,6 +531,50 @@ async def register(websocket, path=None):
             elif msg_type == "status_update":
                 connected_clients[client_id]["uptime"] = data.get("uptime")
                 connected_clients[client_id]["voltage"] = data.get("voltage")
+
+            # Handle voice command transcriptions
+            elif msg_type == "voice_command":
+                audio_base64 = data.get("data")
+                if audio_base64:
+                    logger.info("Received voice command from client. Transcribing...")
+                    
+                    # Notify user via Telegram
+                    authorized_chat = config.get("authorized_chat_id", 0)
+                    if authorized_chat:
+                        await bot.send_chat_action(authorized_chat, 'typing')
+                        
+                    transcription = await transcribe_audio_gemini(audio_base64)
+                    logger.info(f"Voice Transcription: '{transcription}'")
+                    
+                    if transcription.strip():
+                        # Inform user about transcription
+                        if authorized_chat:
+                            await bot.send_message(authorized_chat, f"🎙️ *Voice Command Received*:\n_{transcription}_", parse_mode="Markdown")
+                        
+                        # Process command via AI
+                        response = await ask_ai(transcription, chat_id=authorized_chat if authorized_chat else 1)
+                        
+                        # Send AI response back to C++ client GUI so they see it
+                        reply_packet = {
+                            "type": "chat_receive",
+                            "content": f"🎙️ *You said:* \"{transcription}\"\n\n🤖 *Response:* {response}"
+                        }
+                        await websocket.send(json.dumps(reply_packet))
+                        
+                        # Also send bot reply to Telegram if authorized
+                        if authorized_chat:
+                            cleaned = format_markdown_for_telegram(response)
+                            try:
+                                await bot.send_message(authorized_chat, cleaned, parse_mode="Markdown")
+                            except Exception:
+                                await bot.send_message(authorized_chat, response)
+                    else:
+                        logger.warning("Voice command transcription was empty.")
+                        err_packet = {
+                            "type": "chat_receive",
+                            "content": "🎙️ Voice command was empty or could not be recognized."
+                        }
+                        await websocket.send(json.dumps(err_packet))
                 
     except websockets.exceptions.ConnectionClosed:
         logger.info(f"Client connection closed: {websocket.remote_address}")
@@ -707,8 +763,32 @@ async def ask_ai(prompt, chat_id):
         )
         ai_history[chat_id] = [{"role": "system", "content": system_prompt}]
         
-    # Append user prompt
-    ai_history[chat_id].append({"role": "user", "content": prompt})
+    # Check if this is a vision/screenshot analysis request and we have a screenshot saved
+    image_data_uri = None
+    is_vision_prompt = any(w in prompt.lower() for w in ["screenshot", "screen", "visual", "troubleshoot", "ocr", "what is on"])
+    if is_vision_prompt and os.path.exists("screenshot.png"):
+        try:
+            with open("screenshot.png", "rb") as f:
+                image_base64 = base64.b64encode(f.read()).decode("utf-8")
+            image_data_uri = f"data:image/png;base64,{image_base64}"
+            logger.info("Injecting screenshot into AI vision context.")
+        except Exception as e:
+            logger.error(f"Error base64 encoding screenshot: {e}")
+
+    # Append user prompt (with visual data if present)
+    if image_data_uri:
+        user_content = [
+            {"type": "text", "text": prompt},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": image_data_uri
+                }
+            }
+        ]
+        ai_history[chat_id].append({"role": "user", "content": user_content})
+    else:
+        ai_history[chat_id].append({"role": "user", "content": prompt})
     
     # Keep history manageable
     if len(ai_history[chat_id]) > 25:
@@ -1049,6 +1129,114 @@ def server_console_loop():
         except Exception as e:
             print(f"Console error: {e}")
 
+# Helper to transcribe audio using direct Gemini REST API
+async def transcribe_audio_gemini(audio_base64):
+    api_key = config.get("ai_api_key")
+    if not api_key:
+        return "Error: AI not configured."
+        
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    
+    req_body = {
+        "contents": [{
+            "parts": [
+                {"text": "Transcribe the speech in this audio clip into a clear command. Return ONLY the transcribed text, nothing else. If there is no speech or you cannot hear anything, return empty."},
+                {"inlineData": {"mimeType": "audio/wav", "data": audio_base64}}
+            ]
+        }]
+    }
+    
+    try:
+        req = urllib.request.Request(
+            url, 
+            data=json.dumps(req_body).encode('utf-8'),
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        def make_request():
+            with urllib.request.urlopen(req, timeout=15) as res:
+                return res.read().decode('utf-8')
+                
+        response_text = await asyncio.get_event_loop().run_in_executor(None, make_request)
+        res_json = json.loads(response_text)
+        
+        text = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
+        return text
+    except Exception as e:
+        logger.error(f"Failed to transcribe audio via Gemini REST API: {e}")
+        return ""
+
+# Web Dashboard Handler
+async def handle_dashboard(request):
+    dashboard_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.html")
+    if os.path.exists(dashboard_path):
+        with open(dashboard_path, "r", encoding="utf-8") as f:
+            html = f.read()
+        return web.Response(text=html, content_type='text/html')
+    return web.Response(text="Dashboard HTML not found.", status=404)
+
+# REST API Endpoint: List Clients
+async def handle_api_clients(request):
+    cleaned = {}
+    for cid, c in connected_clients.items():
+        cleaned[cid] = {
+            "name": c["name"],
+            "mac": c["mac"],
+            "coords": c["coords"],
+            "hardware": c["hardware"],
+            "voltage": c["voltage"],
+            "uptime": c["uptime"],
+            "last_seen": c["last_seen"]
+        }
+    return web.json_response(cleaned)
+
+# REST API Endpoint: Capture & Return Screenshot
+async def handle_api_screenshot(request):
+    client_id = request.match_info['client_id']
+    if client_id in connected_clients:
+        future = asyncio.get_event_loop().create_future()
+        screenshot_futures[client_id] = future
+        
+        ws = connected_clients[client_id]["websocket"]
+        await ws.send(json.dumps({"type": "capture_screenshot", "chat_id": "dashboard"}))
+        
+        try:
+            # Wait up to 10s for screen hex payload to return
+            img_data = await asyncio.wait_for(future, timeout=10.0)
+            return web.Response(body=img_data, content_type='image/png')
+        except asyncio.TimeoutError:
+            return web.Response(text="Screenshot timed out.", status=504)
+        finally:
+            screenshot_futures.pop(client_id, None)
+            
+    return web.Response(text="Client offline.", status=404)
+
+# REST API Endpoint: Execute Command or AI Diagnostics
+async def handle_api_terminal(request):
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"output": "Invalid JSON body."})
+        
+    client_id = data.get("client_id")
+    command = data.get("command", "")
+    
+    if not client_id or client_id not in connected_clients:
+        return web.json_response({"output": "Client is offline."})
+        
+    # Check if it's an AI vision/troubleshoot request or raw shell execution
+    is_ai_query = any(word in command.lower() for word in ["please", "analyze", "troubleshoot", "explain", "what is"])
+    
+    if is_ai_query:
+        global active_client_id
+        active_client_id = client_id
+        # Run through ask_ai multimodal processor
+        output = await ask_ai(command, chat_id="dashboard")
+    else:
+        output = await send_command_to_client(client_id, "execute_command", {"command": command})
+        
+    return web.json_response({"output": output})
+
 # Server Main runner
 async def main():
     # Start WebSocket Server
@@ -1057,6 +1245,20 @@ async def main():
     
     logger.info(f"Starting WebSocket server on ws://{host}:{port}...")
     ws_server = await websockets.serve(register, host, port)
+    
+    # Start Web Dashboard on port 8766
+    dashboard_app = web.Application()
+    dashboard_app.add_routes([
+        web.get('/', handle_dashboard),
+        web.get('/api/clients', handle_api_clients),
+        web.get('/api/screenshot/{client_id}', handle_api_screenshot),
+        web.post('/api/terminal', handle_api_terminal)
+    ])
+    runner = web.AppRunner(dashboard_app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8766)
+    logger.info("Starting Web Dashboard on http://0.0.0.0:8766...")
+    await site.start()
     
     # Start Telegram Bot polling
     logger.info("Starting Telegram Bot listener...")

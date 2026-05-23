@@ -382,6 +382,55 @@
         .message-bubble a:hover {
             text-decoration: underline;
         }
+
+        /* Dynamic Theme definitions */
+        body.theme-cyberpunk {
+            --bg-color: #05050a;
+            --sidebar-bg: rgba(10, 10, 20, 0.8);
+            --card-bg: rgba(20, 20, 35, 0.7);
+            --border-color: rgba(255, 0, 127, 0.2);
+            --text-primary: #00ffff;
+            --text-secondary: #ff007f;
+            --accent-glow: rgba(0, 255, 255, 0.25);
+            --accent-primary: #ff007f;
+            --accent-secondary: #00ffff;
+            --bubble-user: linear-gradient(135deg, #ff007f, #b30059);
+            --bubble-bot: rgba(10, 10, 25, 0.9);
+            background-image: radial-gradient(circle at 10% 20%, rgba(255, 0, 127, 0.1) 0%, transparent 40%),
+                              radial-gradient(circle at 90% 80%, rgba(0, 255, 255, 0.1) 0%, transparent 40%);
+        }
+
+        body.theme-amber {
+            --bg-color: #120c02;
+            --sidebar-bg: rgba(26, 18, 5, 0.7);
+            --card-bg: rgba(45, 30, 10, 0.6);
+            --border-color: rgba(245, 158, 11, 0.15);
+            --text-primary: #fef3c7;
+            --text-secondary: #f59e0b;
+            --accent-glow: rgba(245, 158, 11, 0.25);
+            --accent-primary: #f59e0b;
+            --accent-secondary: #d97706;
+            --bubble-user: linear-gradient(135deg, #f59e0b, #d97706);
+            --bubble-bot: rgba(45, 30, 10, 0.85);
+            background-image: radial-gradient(circle at 10% 20%, rgba(245, 158, 11, 0.08) 0%, transparent 40%),
+                              radial-gradient(circle at 90% 80%, rgba(217, 119, 6, 0.05) 0%, transparent 40%);
+        }
+
+        body.theme-matrix {
+            --bg-color: #000000;
+            --sidebar-bg: rgba(0, 15, 0, 0.8);
+            --card-bg: rgba(0, 25, 0, 0.7);
+            --border-color: rgba(0, 255, 0, 0.3);
+            --text-primary: #00ff00;
+            --text-secondary: #00aa00;
+            --accent-glow: rgba(0, 255, 0, 0.25);
+            --accent-primary: #00ff00;
+            --accent-secondary: #00cc00;
+            --bubble-user: linear-gradient(135deg, #00bb00, #008800);
+            --bubble-bot: rgba(0, 10, 0, 0.9);
+            background-image: none;
+            font-family: 'Courier New', Courier, monospace;
+        }
     </style>
 </head>
 <body>
@@ -434,6 +483,14 @@
                 <div class="chat-title">AI Assistant Manager</div>
                 <div class="chat-subtitle">Connected to windOS orchestration cluster</div>
             </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <select id="theme-selector" onchange="changeTheme(this.value)" style="background: rgba(30, 41, 59, 0.6); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 8px; padding: 6px 12px; font-family: inherit; font-size: 13px; outline: none; cursor: pointer;">
+                    <option value="glass">Sleek Glass</option>
+                    <option value="cyberpunk">Cyberpunk Neon</option>
+                    <option value="amber">Amber Glow</option>
+                    <option value="matrix">Matrix Code</option>
+                </select>
+            </div>
         </div>
 
         <!-- Chat messages -->
@@ -450,6 +507,9 @@
         <div class="chat-input-container">
             <div class="input-wrapper">
                 <input type="text" id="chat-input" placeholder="Type a message or AI instruction..." onkeydown="handleKey(event)">
+                <button id="mic-button" onclick="toggleRecording()" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); color: var(--text-primary); margin-right: 6px; padding: 0 14px; border-radius: 20px;">
+                    🎙️
+                </button>
                 <button onclick="sendMessage()">Send</button>
             </div>
         </div>
@@ -599,6 +659,68 @@
             addMessage('bot', text, true);
         }
 
+        // Theme switcher
+        function changeTheme(theme) {
+            document.body.className = '';
+            if (theme !== 'glass') {
+                document.body.classList.add(`theme-${theme}`);
+            }
+            localStorage.setItem('windos-theme', theme);
+        }
+
+        // Restore theme on load
+        const savedTheme = localStorage.getItem('windos-theme') || 'glass';
+        document.getElementById('theme-selector').value = savedTheme;
+        changeTheme(savedTheme);
+
+        // Voice Command Recording
+        let isRecording = false;
+        let recordingTimer = null;
+
+        function toggleRecording() {
+            const micBtn = document.getElementById('mic-button');
+            const input = document.getElementById('chat-input');
+            
+            if (!isRecording) {
+                isRecording = true;
+                micBtn.innerHTML = '🛑';
+                micBtn.style.background = 'rgba(239, 68, 68, 0.2)';
+                micBtn.style.borderColor = '#ef4444';
+                input.value = "";
+                input.disabled = true;
+                input.placeholder = "🎙️ Recording voice command (max 5s)... Speak now!";
+                
+                showTypingIndicator();
+
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage(JSON.stringify({
+                        type: "start_recording"
+                    }));
+                }
+                
+                recordingTimer = setTimeout(() => {
+                    if (isRecording) {
+                        toggleRecording();
+                    }
+                }, 5000);
+            } else {
+                isRecording = false;
+                clearTimeout(recordingTimer);
+                micBtn.innerHTML = '🎙️';
+                micBtn.style.background = 'rgba(255, 255, 255, 0.05)';
+                micBtn.style.borderColor = 'var(--border-color)';
+                input.disabled = false;
+                input.placeholder = "Type a message or AI instruction...";
+                input.focus();
+
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage(JSON.stringify({
+                        type: "stop_recording"
+                    }));
+                }
+            }
+        }
+
         // Enable C++ to send events to WebView2
         window.addEventListener('message', event => {
             const data = JSON.parse(event.data);
@@ -610,6 +732,30 @@
                 showTypingIndicator();
             } else if (data.type === 'hide_typing') {
                 hideTypingIndicator();
+            } else if (data.type === 'recording_failed') {
+                isRecording = false;
+                clearTimeout(recordingTimer);
+                const micBtn = document.getElementById('mic-button');
+                const input = document.getElementById('chat-input');
+                micBtn.innerHTML = '🎙️';
+                micBtn.style.background = 'rgba(255, 255, 255, 0.05)';
+                micBtn.style.borderColor = 'var(--border-color)';
+                input.disabled = false;
+                input.placeholder = "Type a message or AI instruction...";
+                hideTypingIndicator();
+                addMessage('bot', `⚠️ Recording failed: ${data.message}`, false);
+            } else if (data.type === 'recording_stopped') {
+                if (isRecording) {
+                    isRecording = false;
+                    clearTimeout(recordingTimer);
+                    const micBtn = document.getElementById('mic-button');
+                    const input = document.getElementById('chat-input');
+                    micBtn.innerHTML = '🎙️';
+                    micBtn.style.background = 'rgba(255, 255, 255, 0.05)';
+                    micBtn.style.borderColor = 'var(--border-color)';
+                    input.disabled = false;
+                    input.placeholder = "Type a message or AI instruction...";
+                }
             }
         });
     </script>
