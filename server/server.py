@@ -302,7 +302,7 @@ def clean_hardware_name(name):
 
 def format_markdown_for_telegram(text):
     if not text:
-        return text
+        return ""
         
     def escape_underscores_except_urls(val):
         words = val.split(" ")
@@ -750,11 +750,15 @@ async def ask_ai(prompt, chat_id):
                 messages=ai_history[chat_id]
             )
             final_content = second_response.choices[0].message.content
+            if not final_content:
+                final_content = "⚠️ Received empty response from the AI."
             ai_history[chat_id].append({"role": "assistant", "content": final_content})
             return final_content
             
         else:
             final_content = response_message.content
+            if not final_content:
+                final_content = "⚠️ Received empty response from the AI."
             ai_history[chat_id].append({"role": "assistant", "content": final_content})
             return final_content
             
