@@ -10,3 +10,10 @@ screenshot.png
 .vscode/
 venv/
 .env
+
+# C++ binaries & WebView2 SDK
+client/cpp/sdk/
+*.exe
+installer/client_binary.h
+client/cpp/resources.h
+installer/resources.h

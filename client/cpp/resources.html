@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>windOS Assist Client Panel</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --sidebar-bg: rgba(15, 23, 42, 0.4);
+            --card-bg: rgba(30, 41, 59, 0.35);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-glow: rgba(99, 102, 241, 0.2);
+            --accent-primary: #6366f1;
+            --accent-secondary: #4f46e5;
+            --bubble-user: linear-gradient(135deg, #6366f1, #4f46e5);
+            --bubble-bot: rgba(30, 41, 59, 0.7);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+            background-image: radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 40%),
+                              radial-gradient(circle at 90% 80%, rgba(79, 70, 229, 0.05) 0%, transparent 40%);
+        }
+
+        /* Sidebar styling */
+        .sidebar {
+            width: 280px;
+            background: var(--sidebar-bg);
+            backdrop-filter: blur(15px);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            gap: 20px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 700;
+            font-size: 20px;
+            letter-spacing: 0.5px;
+            background: linear-gradient(to right, #818cf8, #e0e7ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand-icon {
+            color: var(--accent-primary);
+            font-size: 24px;
+        }
+
+        .status-container {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .status-header {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .status-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+        }
+
+        .status-label {
+            color: var(--text-secondary);
+        }
+
+        .status-value {
+            font-weight: 500;
+        }
+
+        .indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .indicator.online {
+            background-color: #10b981;
+            box-shadow: 0 0 8px #10b981;
+        }
+
+        .indicator.offline {
+            background-color: #ef4444;
+            box-shadow: 0 0 8px #ef4444;
+        }
+
+        .system-details {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: auto;
+            border-top: 1px solid var(--border-color);
+            padding-top: 20px;
+        }
+
+        .sys-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .sys-title {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        /* Chat Area */
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: transparent;
+        }
+
+        .chat-header {
+            height: 70px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 28px;
+            background: rgba(11, 15, 25, 0.3);
+            backdrop-filter: blur(10px);
+            justify-content: space-between;
+        }
+
+        .chat-title {
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .chat-subtitle {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px 28px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* Scrollbar styling */
+        .chat-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+        .chat-messages::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 3px;
+        }
+        .chat-messages::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .message {
+            display: flex;
+            flex-direction: column;
+            max-width: 75%;
+            animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            align-self: flex-end;
+        }
+
+        .message.bot {
+            align-self: flex-start;
+        }
+
+        .message-bubble {
+            padding: 12px 18px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.5;
+            word-wrap: break-word;
+            word-break: break-word;
+        }
+
+        .message.user .message-bubble {
+            background: var(--bubble-user);
+            border-bottom-right-radius: 4px;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+        }
+
+        .message.bot .message-bubble {
+            background: var(--bubble-bot);
+            border: 1px solid var(--border-color);
+            border-bottom-left-radius: 4px;
+            backdrop-filter: blur(10px);
+        }
+
+        .message-time {
+            font-size: 10px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            align-self: flex-end;
+        }
+
+        .message.bot .message-time {
+            align-self: flex-start;
+        }
+
+        /* Input Controls */
+        .chat-input-container {
+            padding: 20px 28px;
+            border-top: 1px solid var(--border-color);
+            background: rgba(11, 15, 25, 0.4);
+            backdrop-filter: blur(10px);
+        }
+
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            background: rgba(30, 41, 59, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .input-wrapper:focus-within {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-primary);
+            padding: 12px 20px;
+            font-family: inherit;
+            font-size: 14px;
+        }
+
+        input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        button {
+            background: var(--accent-primary);
+            color: white;
+            border: none;
+            outline: none;
+            padding: 0 20px;
+            border-radius: 20px;
+            font-weight: 500;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        button:hover {
+            background: var(--accent-secondary);
+            box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+        }
+
+        button:active {
+            transform: scale(0.97);
+        }
+
+        /* Typing indicator */
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 12px 18px;
+            background: var(--bubble-bot);
+            border: 1px solid var(--border-color);
+            border-radius: 18px;
+            border-bottom-left-radius: 4px;
+            width: fit-content;
+            align-items: center;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .dot {
+            width: 6px;
+            height: 6px;
+            background-color: var(--text-secondary);
+            border-radius: 50%;
+            animation: bounce 1.3s infinite ease-in-out;
+        }
+
+        .dot:nth-child(2) { animation-delay: 0.15s; }
+        .dot:nth-child(3) { animation-delay: 0.3s; }
+
+        @keyframes bounce {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-4px); }
+        }
+
+        /* Markdown elements formatting */
+        .message-bubble pre {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 6px;
+            margin: 8px 0;
+            overflow-x: auto;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .message-bubble code {
+            font-family: 'Courier New', Courier, monospace;
+            background: rgba(255, 255, 255, 0.08);
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .message-bubble ul, .message-bubble ol {
+            margin-left: 20px;
+            margin-top: 5px;
+            margin-bottom: 5px;
+        }
+        .message-bubble li {
+            margin-bottom: 3px;
+        }
+        .message-bubble p {
+            margin-bottom: 8px;
+        }
+        .message-bubble p:last-child {
+            margin-bottom: 0;
+        }
+        .message-bubble a {
+            color: #818cf8;
+            text-decoration: none;
+        }
+        .message-bubble a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar Panel -->
+    <div class="sidebar">
+        <div class="brand">
+            <span class="brand-icon">☁️</span>
+            <span>windOS Assist</span>
+        </div>
+
+        <div class="status-container">
+            <div class="status-header">Network Connectivity</div>
+            <div class="status-card">
+                <div class="status-row">
+                    <span class="status-label">Server Connection:</span>
+                    <span id="connection-status" class="status-value"><span class="indicator offline"></span> Offline</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="system-details">
+            <div class="status-header">Telemetry Info</div>
+            <div class="sys-item">
+                <span class="sys-title">Device Hostname</span>
+                <span id="sys-hostname">Detecting...</span>
+            </div>
+            <div class="sys-item">
+                <span class="sys-title">Processor Model</span>
+                <span id="sys-cpu">Detecting...</span>
+            </div>
+            <div class="sys-item">
+                <span class="sys-title">Graphics Adapter</span>
+                <span id="sys-gpu">Detecting...</span>
+            </div>
+            <div class="sys-item">
+                <span class="sys-title">System Uptime</span>
+                <span id="sys-uptime">Detecting...</span>
+            </div>
+            <div class="sys-item">
+                <span class="sys-title">Power Voltage</span>
+                <span id="sys-voltage">Detecting...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat Container -->
+    <div class="chat-container">
+        <div class="chat-header">
+            <div>
+                <div class="chat-title">AI Assistant Manager</div>
+                <div class="chat-subtitle">Connected to windOS orchestration cluster</div>
+            </div>
+        </div>
+
+        <!-- Chat messages -->
+        <div class="chat-messages" id="chat-messages">
+            <div class="message bot">
+                <div class="message-bubble">
+                    Welcome to the windOS Client Control Panel! Type a prompt below to interact with the server's AI bot.
+                </div>
+                <div class="message-time" id="welcome-time">12:00</div>
+            </div>
+        </div>
+
+        <!-- Input controls -->
+        <div class="chat-input-container">
+            <div class="input-wrapper">
+                <input type="text" id="chat-input" placeholder="Type a message or AI instruction..." onkeydown="handleKey(event)">
+                <button onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Set initial welcome time
+        const now = new Date();
+        document.getElementById('welcome-time').innerText = now.toTimeString().substring(0, 5);
+
+        // Simple Markdown renderer
+        function parseMarkdown(text) {
+            if (!text) return "";
+            let html = text;
+            
+            // Code blocks
+            html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+            
+            // Inline code
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            
+            // Bold
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
+            
+            // Bullets
+            html = html.replace(/^\u2022\s+(.+)$/gm, '<li>$1</li>');
+            html = html.replace(/^•\s+(.+)$/gm, '<li>$1</li>');
+            html = html.replace(/^\*\s+(.+)$/gm, '<li>$1</li>');
+            html = html.replace(/((?:<li>.+<\/li>\s*)+)/g, '<ul>$1</ul>');
+            
+            // Line breaks
+            html = html.replace(/\n/g, '<br>');
+            
+            return html;
+        }
+
+        // Add message to chat log
+        function addMessage(sender, text, isMarkdown = true) {
+            const container = document.getElementById('chat-messages');
+            
+            // Remove typing indicator if exists
+            const existingIndicator = document.getElementById('typing-indicator-wrapper');
+            if (existingIndicator) {
+                existingIndicator.remove();
+            }
+
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${sender}`;
+
+            const bubbleDiv = document.createElement('div');
+            bubbleDiv.className = 'message-bubble';
+            bubbleDiv.innerHTML = isMarkdown ? parseMarkdown(text) : text;
+
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'message-time';
+            const msgNow = new Date();
+            timeDiv.innerText = msgNow.toTimeString().substring(0, 5);
+
+            msgDiv.appendChild(bubbleDiv);
+            msgDiv.appendChild(timeDiv);
+            container.appendChild(msgDiv);
+            
+            // Auto scroll to bottom
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // Show typing indicator
+        function showTypingIndicator() {
+            const container = document.getElementById('chat-messages');
+            
+            // Check if already showing
+            if (document.getElementById('typing-indicator-wrapper')) return;
+
+            const wrapper = document.createElement('div');
+            wrapper.id = 'typing-indicator-wrapper';
+            wrapper.className = 'message bot';
+
+            const indicator = document.createElement('div');
+            indicator.className = 'typing-indicator';
+            indicator.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+
+            wrapper.appendChild(indicator);
+            container.appendChild(wrapper);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // Hide typing indicator
+        function hideTypingIndicator() {
+            const existingIndicator = document.getElementById('typing-indicator-wrapper');
+            if (existingIndicator) {
+                existingIndicator.remove();
+            }
+        }
+
+        // Send chat message
+        function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            // Display locally
+            addMessage('user', text, false);
+            input.value = "";
+
+            // Show bot is thinking
+            showTypingIndicator();
+
+            // Send via WebView2 bridge to C++
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    type: "chat_send",
+                    content: text
+                }));
+            } else {
+                // Mock reply if running in regular browser
+                setTimeout(() => {
+                    addMessage('bot', 'Mock response: Chrome webview bridge is not available.', false);
+                }, 1000);
+            }
+        }
+
+        function handleKey(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        // Receive status updates from C++
+        function updateSystemStatus(data) {
+            const statusLabel = document.getElementById('connection-status');
+            if (data.connected) {
+                statusLabel.innerHTML = '<span class="indicator online"></span> Connected';
+            } else {
+                statusLabel.innerHTML = '<span class="indicator offline"></span> Disconnected';
+            }
+
+            if (data.hostname) document.getElementById('sys-hostname').innerText = data.hostname;
+            if (data.cpu) document.getElementById('sys-cpu').innerText = data.cpu;
+            if (data.gpu) document.getElementById('sys-gpu').innerText = data.gpu;
+            if (data.uptime) document.getElementById('sys-uptime').innerText = data.uptime;
+            if (data.voltage) document.getElementById('sys-voltage').innerText = data.voltage;
+        }
+
+        // Receive chat responses from C++
+        function receiveBotResponse(text) {
+            addMessage('bot', text, true);
+        }
+
+        // Enable C++ to send events to WebView2
+        window.addEventListener('message', event => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'status') {
+                updateSystemStatus(data.payload);
+            } else if (data.type === 'chat_receive') {
+                receiveBotResponse(data.content);
+            } else if (data.type === 'show_typing') {
+                showTypingIndicator();
+            } else if (data.type === 'hide_typing') {
+                hideTypingIndicator();
+            }
+        });
+    </script>
+</body>
+</html>
