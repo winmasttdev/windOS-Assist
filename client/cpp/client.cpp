@@ -453,6 +453,7 @@ private:
     HINTERNET hRequest = NULL;
     HINTERNET hWebSocket = NULL;
     bool connected = false;
+    std::mutex sendMutex;
 
 public:
     bool Connect(std::wstring host, int port, std::wstring path = L"/", bool useSSL = false) {
@@ -505,6 +506,7 @@ public:
     }
 
     bool Send(std::string msg) {
+        std::lock_guard<std::mutex> lock(sendMutex);
         if (!connected || !hWebSocket) return false;
         DWORD err = WinHttpWebSocketSend(hWebSocket, WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE, (PVOID)msg.c_str(), (DWORD)msg.length());
         return err == ERROR_SUCCESS;
@@ -693,6 +695,22 @@ void ParseWebSocketUrl(std::string urlStr, std::wstring& host, int& port, std::w
     }
 }
 
+// Thread for sending periodic status updates
+void StatusUpdateThread() {
+    while (true) {
+        Sleep(30000);
+        if (g_connectedToServer && g_ws.IsConnected()) {
+            json up = {
+                { "type", "status_update" },
+                { "voltage", GetVoltage() },
+                { "uptime", GetUptime() }
+            };
+            g_ws.Send(up.dump());
+            UpdateGUIStatus();
+        }
+    }
+}
+
 // Background thread loop managing connection & messages
 void BackgroundWorkerThread() {
     g_shell = new InteractiveShell();
@@ -761,24 +779,9 @@ void BackgroundWorkerThread() {
                 }
             }
 
-            // Status Update timer
-            ULONGLONG lastUpdate = GetTickCount64();
-
             // Receive Loop
             while (g_ws.IsConnected()) {
-                // Check if we need to send periodic status updates (every 30s)
-                if (GetTickCount64() - lastUpdate > 30000) {
-                    json up = {
-                        { "type", "status_update" },
-                        { "voltage", GetVoltage() },
-                        { "uptime", GetUptime() }
-                    };
-                    g_ws.Send(up.dump());
-                    lastUpdate = GetTickCount64();
-                    UpdateGUIStatus();
-                }
-
-                // Try receiving with a short timeout to run loop
+                // Try receiving
                 std::string rx;
                 // Wait for message
                 if (g_ws.Receive(rx)) {
@@ -1096,8 +1099,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     g_cpuName = GetCPUName();
     g_gpuName = GetGPUName();
 
-    // Start background websocket daemon connection thread
+    // Start background websocket daemon connection thread and status updater thread
     std::thread(BackgroundWorkerThread).detach();
+    std::thread(StatusUpdateThread).detach();
 
     // Register Win32 Window Class
     WNDCLASSEXW wcex = { 0 };

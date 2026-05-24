@@ -122,7 +122,7 @@ void RunInstallation(json params) {
     HKEY hKey;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
         std::wstring regCmd = L"\"" + clientExePath + L"\" /background";
-        RegSetValueExW(hKey, L"windOS-Assist", 0, REG_SZ, (LPBYTE)regCmd.c_str(), (DWORD)(regCmd.length() * sizeof(wchar_t)));
+        RegSetValueExW(hKey, L"windOS-Assist", 0, REG_SZ, (LPBYTE)regCmd.c_str(), (DWORD)((regCmd.length() + 1) * sizeof(wchar_t)));
         RegCloseKey(hKey);
     }
 
