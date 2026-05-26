@@ -73,15 +73,21 @@ void KillProcessByName(const wchar_t* filename) {
     CloseHandle(hSnap);
 }
 
+#define WM_EXECUTE_SCRIPT (WM_USER + 3)
+
+void RunScriptOnUIThread(const std::wstring& script) {
+    std::wstring* pScript = new std::wstring(script);
+    PostMessageW(g_hWnd, WM_EXECUTE_SCRIPT, 0, (LPARAM)pScript);
+}
+
 void PostProgress(int percentage, const std::string& status) {
-    if (!g_webviewWindow) return;
     json progress = {
         { "type", "install_progress" },
         { "percentage", percentage },
         { "status", status }
     };
     std::wstring script = L"window.postMessage(" + s2ws(progress.dump()) + L", '*');";
-    g_webviewWindow->ExecuteScript(script.c_str(), nullptr);
+    RunScriptOnUIThread(script);
 }
 
 void RunInstallation(json params) {
@@ -249,7 +255,7 @@ void SetupWebView2(HWND hWnd) {
                                     { "hostname", g_hostname }
                                 };
                                 std::wstring script = L"window.postMessage(" + s2ws(initData.dump()) + L", '*');";
-                                g_webviewWindow->ExecuteScript(script.c_str(), nullptr);
+                                RunScriptOnUIThread(script);
                             }).detach();
 
                             return S_OK;
@@ -267,6 +273,16 @@ void SetupWebView2(HWND hWnd) {
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+        case WM_EXECUTE_SCRIPT: {
+            std::wstring* pScript = (std::wstring*)lParam;
+            if (pScript) {
+                if (g_webviewWindow) {
+                    g_webviewWindow->ExecuteScript(pScript->c_str(), nullptr);
+                }
+                delete pScript;
+            }
+            break;
+        }
         case WM_SIZE:
             if (g_webviewController) {
                 RECT bounds;
