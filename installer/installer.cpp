@@ -19,6 +19,7 @@
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "WebView2LoaderStatic.lib")
+#include <tlhelp32.h>
 
 using namespace Microsoft::WRL;
 using json = nlohmann::json;
@@ -33,6 +34,7 @@ std::wstring s2ws(const std::string& str);
 std::string ws2s(const std::wstring& wstr);
 void SetupWebView2(HWND hWnd);
 void RunInstallation(json params);
+void KillProcessByName(const wchar_t* filename);
 
 std::wstring s2ws(const std::string& str) {
     if (str.empty()) return L"";
@@ -48,6 +50,27 @@ std::string ws2s(const std::wstring& wstr) {
     std::string strTo(size_needed, 0);
     WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0], size_needed, NULL, NULL);
     return strTo;
+}
+
+void KillProcessByName(const wchar_t* filename) {
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnap == INVALID_HANDLE_VALUE) return;
+    
+    PROCESSENTRY32W pe;
+    pe.dwSize = sizeof(pe);
+    
+    if (Process32FirstW(hSnap, &pe)) {
+        do {
+            if (_wcsicmp(pe.szExeFile, filename) == 0) {
+                HANDLE hProc = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID);
+                if (hProc) {
+                    TerminateProcess(hProc, 0);
+                    CloseHandle(hProc);
+                }
+            }
+        } while (Process32NextW(hSnap, &pe));
+    }
+    CloseHandle(hSnap);
 }
 
 void PostProgress(int percentage, const std::string& status) {
@@ -69,6 +92,10 @@ void RunInstallation(json params) {
 
     // 1. Preparing folders (15%)
     PostProgress(15, "Preparing destination folders...");
+    Sleep(500);
+
+    // Stop client first to prevent write lock error
+    KillProcessByName(L"windOS-client.exe");
     Sleep(500);
 
     wchar_t localPath[MAX_PATH];
@@ -154,6 +181,13 @@ void HandleWebMessage(const std::string& msgStr) {
         else if (type == "close") {
             DestroyWindow(g_hWnd);
         }
+        else if (type == "minimize") {
+            ShowWindow(g_hWnd, SW_MINIMIZE);
+        }
+        else if (type == "window_drag") {
+            ReleaseCapture();
+            SendMessage(g_hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+        }
     } catch (...) {}
 }
 
@@ -164,15 +198,26 @@ void SetupWebView2(HWND hWnd) {
     CreateDirectoryW((std::wstring(localPath) + L"\\windOS-Assist").c_str(), NULL);
     CreateDirectoryW(userDataFolder.c_str(), NULL);
 
-    CreateCoreWebView2EnvironmentWithOptions(nullptr, userDataFolder.c_str(), nullptr,
+    HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(nullptr, userDataFolder.c_str(), nullptr,
         Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
             [hWnd](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
-                if (FAILED(result)) return result;
+                if (FAILED(result)) {
+                    MessageBoxW(hWnd, (L"Failed to create WebView2 environment. Error: " + std::to_wstring(result) +
+                        L"\n\nPlease verify that Microsoft Edge WebView2 Runtime is installed.").c_str(),
+                        L"windOS Setup Error", MB_OK | MB_ICONERROR);
+                    DestroyWindow(hWnd);
+                    return result;
+                }
 
                 env->CreateCoreWebView2Controller(hWnd,
                     Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
                         [hWnd](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
-                            if (FAILED(result)) return result;
+                            if (FAILED(result)) {
+                                MessageBoxW(hWnd, (L"Failed to create WebView2 controller. Error: " + std::to_wstring(result)).c_str(),
+                                    L"windOS Setup Error", MB_OK | MB_ICONERROR);
+                                DestroyWindow(hWnd);
+                                return result;
+                            }
 
                             g_webviewController = controller;
                             g_webviewController->get_CoreWebView2(&g_webviewWindow);
@@ -211,6 +256,13 @@ void SetupWebView2(HWND hWnd) {
                         }).Get());
                 return S_OK;
             }).Get());
+
+    if (FAILED(hr)) {
+        MessageBoxW(hWnd, (L"Failed to initiate WebView2 environment. Error: " + std::to_wstring(hr) +
+            L"\n\nPlease verify that Microsoft Edge WebView2 Runtime is installed.").c_str(),
+            L"windOS Setup Error", MB_OK | MB_ICONERROR);
+        DestroyWindow(hWnd);
+    }
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -252,21 +304,23 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         g_hostname = "WindowsClient";
     }
 
+    HBRUSH hBgBrush = CreateSolidBrush(RGB(8, 11, 17));
+
     WNDCLASSEXW wcex = { 0 };
     wcex.cbSize = sizeof(WNDCLASSEX);
-    wcex.style = CS_HREDRAW | CS_VREDRAW;
+    wcex.style = CS_HREDRAW | CS_VREDRAW | CS_DROPSHADOW;
     wcex.lpfnWndProc = WndProc;
     wcex.hInstance = hInstance;
     wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wcex.hbrBackground = hBgBrush;
     wcex.lpszClassName = L"windOSSetupWizard";
     wcex.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
     RegisterClassExW(&wcex);
 
-    // Create fixed-size centered dialog window
+    // Create fixed-size centered borderless window (WS_POPUP)
     g_hWnd = CreateWindowW(L"windOSSetupWizard", L"windOS Assist Setup Wizard", 
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, 0, 636, 520, nullptr, nullptr, hInstance, nullptr);
+        WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX,
+        CW_USEDEFAULT, 0, 620, 480, nullptr, nullptr, hInstance, nullptr);
 
     if (!g_hWnd) return FALSE;
 
@@ -290,5 +344,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         DispatchMessage(&msg);
     }
 
+    DeleteObject(hBgBrush);
     return (int)msg.wParam;
 }

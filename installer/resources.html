@@ -61,9 +61,10 @@
             border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
-            padding: 0 32px;
+            padding: 0 24px;
             justify-content: space-between;
             background: rgba(8, 11, 17, 0.3);
+            cursor: move;
         }
 
         .logo {
@@ -80,13 +81,57 @@
 
         .logo-icon {
             color: var(--accent-primary);
-            font-size: 20px;
+            width: 24px;
+            height: 24px;
+            transition: transform 0.3s ease;
+        }
+
+        .header:hover .logo-icon {
+            transform: scale(1.08);
         }
 
         .step-indicator {
             font-size: 12px;
             color: var(--text-secondary);
             font-weight: 500;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .titlebar-actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        .titlebar-button {
+            width: 26px;
+            height: 26px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .titlebar-button:hover {
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .titlebar-button.close:hover {
+            background: #ef4444;
+            color: white;
+            border-color: #ef4444;
         }
 
         .content {
@@ -300,10 +345,39 @@
         <!-- Header -->
         <div class="header">
             <div class="logo">
-                <span class="logo-icon">☁️</span>
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#818cf8" />
+                            <stop offset="100%" stop-color="#4f46e5" />
+                        </linearGradient>
+                        <linearGradient id="glowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#c7d2fe" stop-opacity="0.4" />
+                            <stop offset="100%" stop-color="#6366f1" stop-opacity="0" />
+                        </linearGradient>
+                    </defs>
+                    <circle cx="12" cy="12" r="10" fill="url(#glowGrad)" />
+                    <path d="M12 2L4 6v6c0 5.25 3.42 10.16 8 11 4.58-.84 8-5.75 8-11V6l-8-4z" stroke="url(#logoGrad)" stroke-width="2" stroke-linejoin="round" />
+                    <path d="M9 11l3 3 3-3" stroke="#f8fafc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M8 15h8" stroke="#f8fafc" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
                 <span>windOS Assist Setup</span>
             </div>
-            <div class="step-indicator" id="step-indicator">Step 1 of 4</div>
+            <div class="header-controls">
+                <div class="step-indicator" id="step-indicator">Step 1 of 4</div>
+                <div class="titlebar-actions">
+                    <button class="titlebar-button minimize" onclick="minimizeWindow()" title="Minimize">
+                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <rect y="5" width="12" height="2" fill="currentColor"/>
+                        </svg>
+                    </button>
+                    <button class="titlebar-button close" onclick="closeInstaller()" title="Close">
+                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M1.5 1.5L10.5 10.5M10.5 1.5L1.5 10.5" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- Content Area -->
@@ -475,6 +549,24 @@
                 window.close();
             }
         }
+
+        function minimizeWindow() {
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({ type: 'minimize' }));
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const header = document.querySelector('.header');
+            header.addEventListener('mousedown', (e) => {
+                if (e.target.closest('.titlebar-button') || e.target.closest('input') || e.target.closest('button')) {
+                    return;
+                }
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage(JSON.stringify({ type: 'window_drag' }));
+                }
+            });
+        });
     </script>
 </body>
 </html>
