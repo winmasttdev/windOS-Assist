@@ -1,3 +1,4 @@
+#edit this file for ur bot and etc
 import os
 import sys
 import json
@@ -22,7 +23,7 @@ GOOGLE_KEY = load_env_api_key()
 SERVER_IP = "192.168.0.102"
 SSH_USER = "winmastt"
 SSH_PASS = "321654"
-TG_TOKEN = "8932933678:AAHLyew625TKRXucnUPsoElTwMi8u0jRQXk"
+TG_TOKEN = "12345678:dssuhifgtiuWAEUIDFF"
 CHAT_ID = 6558418835
 CLIENT_IP = "192.168.0.103"
 OLLAMA_MODEL = "qwen:latest"
